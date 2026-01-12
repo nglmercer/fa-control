@@ -410,7 +410,7 @@ impl AppVolumeController {
         // If no PID, use the sink input index as a fallback identifier
         // This allows us to control streams that don't have a PID set
         let final_pid = if pid_val == 0 {
-          sink_input.index as u32
+          sink_input.index
         } else {
           pid_val
         };
@@ -728,7 +728,7 @@ impl AppVolumeController {
 
         // Match by PID if available, otherwise match by sink input index
         // This aligns with the logic in get_active_audio_apps()
-        if pid_val == pid || (pid_val == 0 && sink_input.index as u32 == pid) {
+        if pid_val == pid || (pid_val == 0 && sink_input.index == pid) {
           let _ = index_tx.send(sink_input.index);
         }
       }
