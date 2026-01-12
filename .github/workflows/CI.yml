@@ -45,7 +45,7 @@ jobs:
             setup: |
               sudo apt-get update
               sudo apt-get install pkg-config libpulse-dev -y
-            build: rustup update stable && npm run build -- --target x86_64-unknown-linux-gnu
+            build: apt-get update && apt-get install -y libpulse-dev && rustup update stable && npm run build -- --target x86_64-unknown-linux-gnu
           # - host: ubuntu-latest
           #   target: x86_64-unknown-linux-musl
           #   docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
