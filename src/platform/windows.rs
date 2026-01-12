@@ -14,38 +14,221 @@ pub struct AudioController;
 
 impl AudioController {
   pub fn get_master_volume() -> Result<f64> {
-    Err(Error::new(
-      Status::GenericFailure,
-      "Master volume control not available in this version. Please use per-application volume control instead.",
-    ))
+    unsafe {
+      let device = Self::get_default_device()?;
+      let session_manager: IAudioSessionManager2 =
+        device.Activate(CLSCTX_ALL, None).map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to activate session manager: {}", e),
+          )
+        })?;
+
+      let session_enum = session_manager.GetSessionEnumerator().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session enumerator: {}", e),
+        )
+      })?;
+
+      let count = session_enum.GetCount().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session count: {}", e),
+        )
+      })?;
+
+      if count > 0 {
+        let session = session_enum.GetSession(0).map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to get session: {}", e),
+          )
+        })?;
+
+        let simple_volume: ISimpleAudioVolume = session.cast().map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to cast to ISimpleAudioVolume: {}", e),
+          )
+        })?;
+
+        let volume = simple_volume.GetMasterVolume().map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to get master volume: {}", e),
+          )
+        })?;
+
+        Ok(volume as f64)
+      } else {
+        Ok(1.0) // Default to full volume if no sessions
+      }
+    }
   }
 
-  pub fn set_master_volume(_volume: f64) -> Result<()> {
-    Err(Error::new(
-      Status::GenericFailure,
-      "Master volume control not available in this version. Please use per-application volume control instead.",
-    ))
+  pub fn set_master_volume(volume: f64) -> Result<()> {
+    if !(0.0..=1.0).contains(&volume) {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Volume must be between 0.0 and 1.0",
+      ));
+    }
+
+    unsafe {
+      let device = Self::get_default_device()?;
+      let session_manager: IAudioSessionManager2 =
+        device.Activate(CLSCTX_ALL, None).map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to activate session manager: {}", e),
+          )
+        })?;
+
+      let session_enum = session_manager.GetSessionEnumerator().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session enumerator: {}", e),
+        )
+      })?;
+
+      let count = session_enum.GetCount().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session count: {}", e),
+        )
+      })?;
+
+      for i in 0..count {
+        if let Ok(session) = session_enum.GetSession(i) {
+          if let Ok(simple_volume) = session.cast::<ISimpleAudioVolume>() {
+            let _ = simple_volume.SetMasterVolume(volume as f32, std::ptr::null());
+          }
+        }
+      }
+
+      Ok(())
+    }
   }
 
   pub fn is_master_muted() -> Result<bool> {
-    Err(Error::new(
-      Status::GenericFailure,
-      "Master volume control not available in this version. Please use per-application volume control instead.",
-    ))
+    unsafe {
+      let device = Self::get_default_device()?;
+      let session_manager: IAudioSessionManager2 =
+        device.Activate(CLSCTX_ALL, None).map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to activate session manager: {}", e),
+          )
+        })?;
+
+      let session_enum = session_manager.GetSessionEnumerator().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session enumerator: {}", e),
+        )
+      })?;
+
+      let count = session_enum.GetCount().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session count: {}", e),
+        )
+      })?;
+
+      if count > 0 {
+        let session = session_enum.GetSession(0).map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to get session: {}", e),
+          )
+        })?;
+
+        let simple_volume: ISimpleAudioVolume = session.cast().map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to cast to ISimpleAudioVolume: {}", e),
+          )
+        })?;
+
+        let muted = simple_volume.GetMute().map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to get master mute: {}", e),
+          )
+        })?;
+
+        Ok(muted.as_bool())
+      } else {
+        Ok(false) // Default to not muted if no sessions
+      }
+    }
   }
 
   pub fn toggle_master_mute() -> Result<bool> {
-    Err(Error::new(
-      Status::GenericFailure,
-      "Master volume control not available in this version. Please use per-application volume control instead.",
-    ))
+    let current_mute = Self::is_master_muted()?;
+    Self::set_master_mute(!current_mute)?;
+    Ok(!current_mute)
   }
 
-  pub fn set_master_mute(_muted: bool) -> Result<()> {
-    Err(Error::new(
-      Status::GenericFailure,
-      "Master volume control not available in this version. Please use per-application volume control instead.",
-    ))
+  pub fn set_master_mute(muted: bool) -> Result<()> {
+    unsafe {
+      let device = Self::get_default_device()?;
+      let session_manager: IAudioSessionManager2 =
+        device.Activate(CLSCTX_ALL, None).map_err(|e| {
+          Error::new(
+            Status::GenericFailure,
+            format!("Failed to activate session manager: {}", e),
+          )
+        })?;
+
+      let session_enum = session_manager.GetSessionEnumerator().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session enumerator: {}", e),
+        )
+      })?;
+
+      let count = session_enum.GetCount().map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get session count: {}", e),
+        )
+      })?;
+
+      for i in 0..count {
+        if let Ok(session) = session_enum.GetSession(i) {
+          if let Ok(simple_volume) = session.cast::<ISimpleAudioVolume>() {
+            let _ = simple_volume.SetMute(BOOL::from(muted), std::ptr::null());
+          }
+        }
+      }
+
+      Ok(())
+    }
+  }
+
+  unsafe fn get_default_device() -> Result<IMMDevice> {
+    let _ = CoInitializeEx(None, COINIT_MULTITHREADED).ok();
+
+    let device_enumerator: IMMDeviceEnumerator =
+      CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to create device enumerator: {}", e),
+        )
+      })?;
+
+    let device: IMMDevice = device_enumerator
+      .GetDefaultAudioEndpoint(EDataFlow(0), ERole(1))
+      .map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to get default audio endpoint: {}", e),
+        )
+      })?;
+
+    Ok(device)
   }
 }
 
