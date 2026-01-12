@@ -257,7 +257,7 @@ impl AppVolumeController {
     }
   }
 
-  pub fn set_app_volume(pid: u32, volume: f64) -> Result<()> {
+  pub fn set_app_volume(pid: u32, volume: f64) -> Result<bool> {
     if !(0.0..=1.0).contains(&volume) {
       return Err(Error::new(
         Status::InvalidArg,
@@ -284,7 +284,7 @@ impl AppVolumeController {
           )
         })?;
 
-      Ok(())
+      Ok(true)
     }
   }
 

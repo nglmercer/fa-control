@@ -340,7 +340,7 @@ impl AppVolumeController {
     Ok(volume as f64)
   }
 
-  pub fn set_app_volume(pid: u32, volume: f64) -> Result<()> {
+  pub fn set_app_volume(pid: u32, volume: f64) -> Result<bool> {
     if !(0.0..=1.0).contains(&volume) {
       return Err(Error::new(
         Status::InvalidArg,
@@ -349,7 +349,7 @@ impl AppVolumeController {
     }
 
     Self::set_sink_input_volume(pid, volume as f32)?;
-    Ok(())
+    Ok(true)
   }
 
   pub fn is_app_muted(pid: u32) -> Result<bool> {
@@ -390,8 +390,9 @@ impl AppVolumeController {
 
     let introspector = context.introspect();
     let (apps_tx, apps_rx) = std::sync::mpsc::channel();
+    let apps_tx_clone = apps_tx.clone();
 
-    introspector.get_sink_input_info_list(move |result| {
+    let operation = introspector.get_sink_input_info_list(move |result| {
       if let ListResult::Item(sink_input) = result {
         let app_name = sink_input
           .name
@@ -406,29 +407,59 @@ impl AppVolumeController {
           .and_then(|s| s.parse::<u32>().ok())
           .unwrap_or(0);
 
+        // If no PID, use the sink input index as a fallback identifier
+        // This allows us to control streams that don't have a PID set
+        let final_pid = if pid_val == 0 {
+          sink_input.index as u32
+        } else {
+          pid_val
+        };
+
         let avg_volume = sink_input.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
 
         let app_info = AppInfo {
-          pid: pid_val,
+          pid: final_pid,
           name: app_name,
           volume: avg_volume as f64,
           muted: sink_input.mute,
         };
 
-        // Filter out 0 PIDs if necessary, or just send valid ones.
-        // Usually pulse streams might not have PID if they are system sounds.
-        if pid_val != 0 {
-          let _ = apps_tx.send(app_info);
-        }
+        // Send all sink inputs, not just those with PIDs
+        let _ = apps_tx_clone.send(app_info);
       }
     });
 
-    let _ = mainloop.iterate(true);
+    drop(apps_tx);
+
+    // Wait for the operation to complete
+    let start_time = std::time::Instant::now();
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+
+      // Timeout after 2 seconds
+      if start_time.elapsed() > std::time::Duration::from_secs(2) {
+        break;
+      }
+
+      std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
     mainloop.quit(Retval(0));
 
     let mut apps = Vec::new();
 
-    while let Ok(app) = apps_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+    // Drain all messages from channel with longer timeout
+    while let Ok(app) = apps_rx.recv_timeout(std::time::Duration::from_millis(500)) {
       apps.push(app);
     }
 
@@ -465,20 +496,38 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (volume_tx, volume_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info(index, move |result| {
+    let operation = introspector.get_sink_input_info(index, move |result| {
       if let ListResult::Item(sink_input) = result {
         let avg_volume = sink_input.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
         let _ = volume_tx.send(avg_volume);
       }
     });
 
-    let _ = mainloop.iterate(true);
+    // Wait for the operation to complete
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(vol) = volume_rx.try_recv() {
+        return Ok(vol);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
 
-    let volume = volume_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .map_err(|_| Error::new(Status::GenericFailure, "Timeout getting sink input volume"))?;
+    if let Ok(vol) = volume_rx.try_recv() {
+      return Ok(vol);
+    }
 
-    Ok(volume)
+    Err(Error::new(
+      Status::GenericFailure,
+      "Timeout getting sink input volume (No result)",
+    ))
   }
 
   fn set_sink_input_volume(pid: u32, volume: f32) -> Result<()> {
@@ -508,16 +557,25 @@ impl AppVolumeController {
       }
     }
 
-    let operation = {
-      let mut cv = ChannelVolumes::default();
-      let vol_val = (volume * pulse::volume::Volume::NORMAL.0 as f32) as u32;
-      cv.set(2, pulse::volume::Volume(vol_val));
+    let mut cv = ChannelVolumes::default();
+    let vol_val = (volume * pulse::volume::Volume::NORMAL.0 as f32) as u32;
+    cv.set(2, pulse::volume::Volume(vol_val));
 
-      context.introspect().set_sink_input_volume(index, &cv, None)
-    };
+    let operation = context.introspect().set_sink_input_volume(index, &cv, None);
 
-    let _ = mainloop.iterate(true);
-    drop(operation);
+    // Wait for the operation to complete
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        OperationState::Running => {}
+      }
+    }
 
     Ok(())
   }
@@ -552,24 +610,37 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (mute_tx, mute_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info(index, move |result| {
+    let operation = introspector.get_sink_input_info(index, move |result| {
       if let ListResult::Item(sink_input) = result {
         let _ = mute_tx.send(sink_input.mute);
       }
     });
 
-    let _ = mainloop.iterate(true);
+    // Wait for the operation to complete
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(muted) = mute_rx.try_recv() {
+        return Ok(muted);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
 
-    let muted = mute_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .map_err(|_| {
-        Error::new(
-          Status::GenericFailure,
-          "Timeout getting sink input mute state",
-        )
-      })?;
+    if let Ok(muted) = mute_rx.try_recv() {
+      return Ok(muted);
+    }
 
-    Ok(muted)
+    Err(Error::new(
+      Status::GenericFailure,
+      "Timeout getting sink input mute state (No result)",
+    ))
   }
 
   fn set_sink_input_mute(pid: u32, muted: bool) -> Result<()> {
@@ -601,8 +672,19 @@ impl AppVolumeController {
 
     let operation = context.introspect().set_sink_input_mute(index, muted, None);
 
-    let _ = mainloop.iterate(true);
-    drop(operation);
+    // Wait for the operation to complete
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        OperationState::Running => {}
+      }
+    }
 
     Ok(())
   }
@@ -644,7 +726,9 @@ impl AppVolumeController {
           .and_then(|s| s.parse::<u32>().ok())
           .unwrap_or(0);
 
-        if pid_val == pid {
+        // Match by PID if available, otherwise match by sink input index
+        // This aligns with the logic in get_active_audio_apps()
+        if pid_val == pid || (pid_val == 0 && sink_input.index as u32 == pid) {
           let _ = index_tx.send(sink_input.index);
         }
       }

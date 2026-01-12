@@ -10,7 +10,7 @@ version = "0.1.3"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi        = { version = "3.8.2", default-features = true, features = ["napi9"] }
+napi        = { version = "3.8.2", default-features = true, features = ["napi9", "async"] }
 napi-derive = "3.5.1"
 once_cell   = "1.19"
 

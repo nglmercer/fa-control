@@ -8,63 +8,63 @@ mod platform;
 
 use platform::{AppVolumeController, AudioController};
 
-/// Get the master volume level (0.0 to 1.0)
+/// Get master volume level (0.0 to 1.0)
 #[napi]
-pub fn get_master_volume() -> Result<f64> {
+pub async fn get_master_volume() -> Result<f64> {
   AudioController::get_master_volume()
 }
 
-/// Set the master volume level (0.0 to 1.0)
+/// Set master volume level (0.0 to 1.0)
 #[napi]
-pub fn set_master_volume(volume: f64) -> Result<()> {
+pub async fn set_master_volume(volume: f64) -> Result<()> {
   AudioController::set_master_volume(volume)
 }
 
 /// Get whether master audio is muted
 #[napi]
-pub fn is_master_muted() -> Result<bool> {
+pub async fn is_master_muted() -> Result<bool> {
   AudioController::is_master_muted()
 }
 
 /// Toggle master mute state
 #[napi]
-pub fn toggle_master_mute() -> Result<bool> {
+pub async fn toggle_master_mute() -> Result<bool> {
   AudioController::toggle_master_mute()
 }
 
 /// Set master mute state
 #[napi]
-pub fn set_master_mute(muted: bool) -> Result<()> {
+pub async fn set_master_mute(muted: bool) -> Result<()> {
   AudioController::set_master_mute(muted)
 }
 
 /// Get volume for a specific application by PID
 #[napi]
-pub fn get_app_volume(pid: u32) -> Result<f64> {
+pub async fn get_app_volume(pid: u32) -> Result<f64> {
   AppVolumeController::get_app_volume(pid)
 }
 
 /// Set volume for a specific application by PID
 #[napi]
-pub fn set_app_volume(pid: u32, volume: f64) -> Result<()> {
+pub async fn set_app_volume(pid: u32, volume: f64) -> Result<bool> {
   AppVolumeController::set_app_volume(pid, volume)
 }
 
 /// Get mute state for a specific application by PID
 #[napi]
-pub fn is_app_muted(pid: u32) -> Result<bool> {
+pub async fn is_app_muted(pid: u32) -> Result<bool> {
   AppVolumeController::is_app_muted(pid)
 }
 
 /// Set mute state for a specific application by PID
 #[napi]
-pub fn set_app_mute(pid: u32, muted: bool) -> Result<()> {
+pub async fn set_app_mute(pid: u32, muted: bool) -> Result<()> {
   AppVolumeController::set_app_mute(pid, muted)
 }
 
 /// Get list of all active audio applications with their PIDs and names
 #[napi]
-pub fn get_active_audio_apps() -> Result<Vec<AppInfo>> {
+pub async fn get_active_audio_apps() -> Result<Vec<AppInfo>> {
   AppVolumeController::get_active_audio_apps()
 }
 
@@ -77,7 +77,7 @@ pub struct AppInfo {
   pub muted: bool,
 }
 
-/// Get the current platform
+/// Get current platform
 #[napi]
 pub fn get_platform() -> String {
   #[cfg(windows)]
