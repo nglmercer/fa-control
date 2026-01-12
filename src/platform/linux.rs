@@ -4,6 +4,7 @@ use libpulse_binding::callbacks::ListResult;
 use libpulse_binding::context::{Context, FlagSet as ContextFlagSet, State as ContextState};
 use libpulse_binding::def::Retval;
 use libpulse_binding::mainloop::standard::{IterateResult, Mainloop};
+use libpulse_binding::operation::State as OperationState;
 use libpulse_binding::proplist::properties::APPLICATION_PROCESS_ID;
 use libpulse_binding::volume::ChannelVolumes;
 use napi::bindgen_prelude::*;
@@ -73,7 +74,8 @@ impl AudioController {
     let introspector = context.introspect();
     let (sink_name_tx, sink_name_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_info_by_index(pulse::def::INVALID_INDEX, move |result| {
+    // Fallback strategy: Get ANY sink if default server info hangs
+    let operation = introspector.get_sink_info_list(move |result| {
       if let ListResult::Item(sink) = result {
         if let Some(name) = sink.name.as_ref() {
           let _ = sink_name_tx.send(name.to_string());
@@ -81,13 +83,27 @@ impl AudioController {
       }
     });
 
-    let _ = mainloop.iterate(true);
+    // Iterate until operation is done
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(name) = sink_name_rx.try_recv() {
+        return Ok(name);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
 
-    let sink_name = sink_name_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .map_err(|_| Error::new(Status::GenericFailure, "Timeout getting default sink name"))?;
-
-    Ok(sink_name)
+    if let Ok(name) = sink_name_rx.try_recv() {
+      return Ok(name);
+    }
+    Err(Error::new(Status::GenericFailure, "No sink found"))
   }
 
   fn get_sink_volume() -> Result<f32> {
@@ -120,20 +136,37 @@ impl AudioController {
     let introspector = context.introspect();
     let (volume_tx, volume_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_info_by_name(&sink_name, move |result| {
+    let operation = introspector.get_sink_info_by_name(&sink_name, move |result| {
       if let ListResult::Item(sink) = result {
         let avg_volume = sink.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
         let _ = volume_tx.send(avg_volume);
       }
     });
 
-    let _ = mainloop.iterate(true);
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(vol) = volume_rx.try_recv() {
+        return Ok(vol);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
 
-    let volume = volume_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .map_err(|_| Error::new(Status::GenericFailure, "Timeout getting sink volume"))?;
+    if let Ok(vol) = volume_rx.try_recv() {
+      return Ok(vol);
+    }
 
-    Ok(volume)
+    Err(Error::new(
+      Status::GenericFailure,
+      "Timeout getting sink volume (No result)",
+    ))
   }
 
   fn set_sink_volume(volume: f32) -> Result<()> {
@@ -173,12 +206,18 @@ impl AudioController {
         .set_sink_volume_by_name(&sink_name, &cv, None)
     };
 
-    // Keep operation alive while we iterate
-    // The operation return type is direct Operation, not Option.
-
-    let _ = mainloop.iterate(true);
-    // Explicitly drop operation to suppress unused var warning if needed, but _ = assignment handles it.
-    drop(operation);
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        OperationState::Running => {}
+      }
+    }
 
     Ok(())
   }
@@ -213,19 +252,36 @@ impl AudioController {
     let introspector = context.introspect();
     let (mute_tx, mute_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_info_by_name(&sink_name, move |result| {
+    let operation = introspector.get_sink_info_by_name(&sink_name, move |result| {
       if let ListResult::Item(sink) = result {
         let _ = mute_tx.send(sink.mute);
       }
     });
 
-    let _ = mainloop.iterate(true);
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(muted) = mute_rx.try_recv() {
+        return Ok(muted);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
 
-    let muted = mute_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .map_err(|_| Error::new(Status::GenericFailure, "Timeout getting sink mute state"))?;
+    if let Ok(muted) = mute_rx.try_recv() {
+      return Ok(muted);
+    }
 
-    Ok(muted)
+    Err(Error::new(
+      Status::GenericFailure,
+      "Timeout getting sink mute state",
+    ))
   }
 
   fn set_sink_mute(muted: bool) -> Result<()> {
@@ -259,8 +315,18 @@ impl AudioController {
       .introspect()
       .set_sink_mute_by_name(&sink_name, muted, None);
 
-    let _ = mainloop.iterate(true);
-    drop(operation);
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        OperationState::Running => {}
+      }
+    }
 
     Ok(())
   }
@@ -570,7 +636,7 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (index_tx, index_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info_list(move |result| {
+    let operation = introspector.get_sink_input_info_list(move |result| {
       if let ListResult::Item(sink_input) = result {
         let pid_val = sink_input
           .proplist
@@ -584,17 +650,39 @@ impl AppVolumeController {
       }
     });
 
-    let _ = mainloop.iterate(true);
+    let start_time = std::time::Instant::now();
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(idx) = index_rx.try_recv() {
+        return Ok(idx);
+      }
 
-    let index = index_rx
-      .recv_timeout(std::time::Duration::from_secs(5))
-      .map_err(|_| {
-        Error::new(
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+
+      if start_time.elapsed() > std::time::Duration::from_millis(500) {
+        return Err(Error::new(
           Status::GenericFailure,
-          format!("No sink input found for PID: {}", pid),
-        )
-      })?;
+          format!("No sink input found for PID: {} (Timeout)", pid),
+        ));
+      }
+      std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
-    Ok(index)
+    if let Ok(idx) = index_rx.try_recv() {
+      return Ok(idx);
+    }
+
+    Err(Error::new(
+      Status::GenericFailure,
+      format!("No sink input found for PID: {} (Operation finished)", pid),
+    ))
   }
 }
