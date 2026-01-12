@@ -1,7 +1,11 @@
 use crate::AppInfo;
 use libpulse_binding as pulse;
+use libpulse_binding::callbacks::ListResult;
 use libpulse_binding::context::{Context, FlagSet as ContextFlagSet, State as ContextState};
+use libpulse_binding::def::Retval;
 use libpulse_binding::mainloop::standard::{IterateResult, Mainloop};
+use libpulse_binding::proplist::properties::APPLICATION_PROCESS_ID;
+use libpulse_binding::volume::ChannelVolumes;
 use napi::bindgen_prelude::*;
 
 pub struct AudioController;
@@ -13,7 +17,7 @@ impl AudioController {
   }
 
   pub fn set_master_volume(volume: f64) -> Result<()> {
-    if volume < 0.0 || volume > 1.0 {
+    if !(0.0..=1.0).contains(&volume) {
       return Err(Error::new(
         Status::InvalidArg,
         "Volume must be between 0.0 and 1.0",
@@ -41,14 +45,18 @@ impl AudioController {
   }
 
   fn get_default_sink_name() -> Result<String> {
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-master")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-master")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -65,10 +73,10 @@ impl AudioController {
     let introspector = context.introspect();
     let (sink_name_tx, sink_name_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_info_by_index(pulse::def::PA_INVALID_INDEX, |_, _, sink| {
-      if let Some(sink) = sink {
-        if sink_name_tx.send(sink.name.clone().into_string()).is_err() {
-          return;
+    introspector.get_sink_info_by_index(pulse::def::INVALID_INDEX, move |result| {
+      if let ListResult::Item(sink) = result {
+        if let Some(name) = sink.name.as_ref() {
+          let _ = sink_name_tx.send(name.to_string());
         }
       }
     });
@@ -84,14 +92,18 @@ impl AudioController {
 
   fn get_sink_volume() -> Result<f32> {
     let sink_name = Self::get_default_sink_name()?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-get-volume")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-volume")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -108,9 +120,9 @@ impl AudioController {
     let introspector = context.introspect();
     let (volume_tx, volume_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_info_by_name(&sink_name, |_, _, sink| {
-      if let Some(sink) = sink {
-        let avg_volume = sink.volume.avg().0 as f32 / pulse::volume::VolumeNorm::MAX.0 as f32;
+    introspector.get_sink_info_by_name(&sink_name, move |result| {
+      if let ListResult::Item(sink) = result {
+        let avg_volume = sink.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
         let _ = volume_tx.send(avg_volume);
       }
     });
@@ -126,14 +138,18 @@ impl AudioController {
 
   fn set_sink_volume(volume: f32) -> Result<()> {
     let sink_name = Self::get_default_sink_name()?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-set-volume")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-set-volume")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -148,38 +164,39 @@ impl AudioController {
     }
 
     let operation = {
-      let sink_index = pulse::def::PA_INVALID_INDEX;
-      let cv = pulse::volume::ChannelVolumes {
-        channels: 2,
-        volumes: [
-          pulse::volume::Volume((volume * pulse::volume::VolumeNorm::MAX.0 as f32) as u32),
-          pulse::volume::Volume((volume * pulse::volume::VolumeNorm::MAX.0 as f32) as u32),
-        ],
-      };
+      let mut cv = ChannelVolumes::default();
+      let vol_val = (volume * pulse::volume::Volume::NORMAL.0 as f32) as u32;
+      cv.set(2, pulse::volume::Volume(vol_val));
 
-      context.set_sink_volume_by_name(&sink_name, &cv, None)
+      context
+        .introspect()
+        .set_sink_volume_by_name(&sink_name, &cv, None)
     };
 
-    if operation.is_none() {
-      return Err(Error::new(
-        Status::GenericFailure,
-        "Failed to set sink volume",
-      ));
-    }
+    // Keep operation alive while we iterate
+    // The operation return type is direct Operation, not Option.
+
+    let _ = mainloop.iterate(true);
+    // Explicitly drop operation to suppress unused var warning if needed, but _ = assignment handles it.
+    drop(operation);
 
     Ok(())
   }
 
   fn get_sink_mute() -> Result<bool> {
     let sink_name = Self::get_default_sink_name()?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-get-mute")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-mute")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -196,8 +213,8 @@ impl AudioController {
     let introspector = context.introspect();
     let (mute_tx, mute_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_info_by_name(&sink_name, |_, _, sink| {
-      if let Some(sink) = sink {
+    introspector.get_sink_info_by_name(&sink_name, move |result| {
+      if let ListResult::Item(sink) = result {
         let _ = mute_tx.send(sink.mute);
       }
     });
@@ -213,14 +230,18 @@ impl AudioController {
 
   fn set_sink_mute(muted: bool) -> Result<()> {
     let sink_name = Self::get_default_sink_name()?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-set-mute")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-set-mute")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -234,14 +255,12 @@ impl AudioController {
       }
     }
 
-    let operation = context.set_sink_mute_by_name(&sink_name, muted, None);
+    let operation = context
+      .introspect()
+      .set_sink_mute_by_name(&sink_name, muted, None);
 
-    if operation.is_none() {
-      return Err(Error::new(
-        Status::GenericFailure,
-        "Failed to set sink mute state",
-      ));
-    }
+    let _ = mainloop.iterate(true);
+    drop(operation);
 
     Ok(())
   }
@@ -256,7 +275,7 @@ impl AppVolumeController {
   }
 
   pub fn set_app_volume(pid: u32, volume: f64) -> Result<()> {
-    if volume < 0.0 || volume > 1.0 {
+    if !(0.0..=1.0).contains(&volume) {
       return Err(Error::new(
         Status::InvalidArg,
         "Volume must be between 0.0 and 1.0",
@@ -278,14 +297,18 @@ impl AppVolumeController {
   }
 
   pub fn get_active_audio_apps() -> Result<Vec<AppInfo>> {
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-get-apps")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-apps")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -302,29 +325,40 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (apps_tx, apps_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info_list(|_, _, sink_input| {
-      if let Some(sink_input) = sink_input {
+    introspector.get_sink_input_info_list(move |result| {
+      if let ListResult::Item(sink_input) = result {
         let app_name = sink_input
           .name
           .as_ref()
           .map(|s| s.to_string())
           .unwrap_or_else(|| "Unknown".to_string());
 
-        let avg_volume = sink_input.volume.avg().0 as f32 / pulse::volume::VolumeNorm::MAX.0 as f32;
+        // Extract PID from proplist
+        let pid_val = sink_input
+          .proplist
+          .get_str(APPLICATION_PROCESS_ID)
+          .and_then(|s| s.parse::<u32>().ok())
+          .unwrap_or(0);
+
+        let avg_volume = sink_input.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
 
         let app_info = AppInfo {
-          pid: sink_input.process_id,
+          pid: pid_val,
           name: app_name,
           volume: avg_volume as f64,
           muted: sink_input.mute,
         };
 
-        let _ = apps_tx.send(app_info);
+        // Filter out 0 PIDs if necessary, or just send valid ones.
+        // Usually pulse streams might not have PID if they are system sounds.
+        if pid_val != 0 {
+          let _ = apps_tx.send(app_info);
+        }
       }
     });
 
     let _ = mainloop.iterate(true);
-    mainloop.quit(pulse::error::Code::OK);
+    mainloop.quit(Retval(0));
 
     let mut apps = Vec::new();
 
@@ -337,14 +371,18 @@ impl AppVolumeController {
 
   fn get_sink_input_volume(pid: u32) -> Result<f32> {
     let index = Self::find_sink_input_index_by_pid(pid)?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-get-app-volume")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-app-volume")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -361,9 +399,9 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (volume_tx, volume_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info(index, |_, _, sink_input| {
-      if let Some(sink_input) = sink_input {
-        let avg_volume = sink_input.volume.avg().0 as f32 / pulse::volume::VolumeNorm::MAX.0 as f32;
+    introspector.get_sink_input_info(index, move |result| {
+      if let ListResult::Item(sink_input) = result {
+        let avg_volume = sink_input.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
         let _ = volume_tx.send(avg_volume);
       }
     });
@@ -379,14 +417,18 @@ impl AppVolumeController {
 
   fn set_sink_input_volume(pid: u32, volume: f32) -> Result<()> {
     let index = Self::find_sink_input_index_by_pid(pid)?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-set-app-volume")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-set-app-volume")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -400,36 +442,34 @@ impl AppVolumeController {
       }
     }
 
-    let cv = pulse::volume::ChannelVolumes {
-      channels: 2,
-      volumes: [
-        pulse::volume::Volume((volume * pulse::volume::VolumeNorm::MAX.0 as f32) as u32),
-        pulse::volume::Volume((volume * pulse::volume::VolumeNorm::MAX.0 as f32) as u32),
-      ],
+    let operation = {
+      let mut cv = ChannelVolumes::default();
+      let vol_val = (volume * pulse::volume::Volume::NORMAL.0 as f32) as u32;
+      cv.set(2, pulse::volume::Volume(vol_val));
+
+      context.introspect().set_sink_input_volume(index, &cv, None)
     };
 
-    let operation = context.set_sink_input_volume(index, &cv, None);
-
-    if operation.is_none() {
-      return Err(Error::new(
-        Status::GenericFailure,
-        "Failed to set sink input volume",
-      ));
-    }
+    let _ = mainloop.iterate(true);
+    drop(operation);
 
     Ok(())
   }
 
   fn get_sink_input_mute(pid: u32) -> Result<bool> {
     let index = Self::find_sink_input_index_by_pid(pid)?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-get-app-mute")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-app-mute")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -446,8 +486,8 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (mute_tx, mute_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info(index, |_, _, sink_input| {
-      if let Some(sink_input) = sink_input {
+    introspector.get_sink_input_info(index, move |result| {
+      if let ListResult::Item(sink_input) = result {
         let _ = mute_tx.send(sink_input.mute);
       }
     });
@@ -468,14 +508,18 @@ impl AppVolumeController {
 
   fn set_sink_input_mute(pid: u32, muted: bool) -> Result<()> {
     let index = Self::find_sink_input_index_by_pid(pid)?;
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-set-app-mute")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-set-app-mute")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -489,27 +533,27 @@ impl AppVolumeController {
       }
     }
 
-    let operation = context.set_sink_input_mute(index, muted, None);
+    let operation = context.introspect().set_sink_input_mute(index, muted, None);
 
-    if operation.is_none() {
-      return Err(Error::new(
-        Status::GenericFailure,
-        "Failed to set sink input mute state",
-      ));
-    }
+    let _ = mainloop.iterate(true);
+    drop(operation);
 
     Ok(())
   }
 
   fn find_sink_input_index_by_pid(pid: u32) -> Result<u32> {
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mut mainloop, "fa-control-find-sink-input")?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-find-sink-input")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
 
-    context.connect(None, ContextFlagSet::NOFLAGS, None)?;
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
 
     loop {
       match mainloop.iterate(false) {
-        IterateResult::Quit(_) | IterateResult::Failure(_) => {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
           return Err(Error::new(
             Status::GenericFailure,
             "Failed to iterate pulseaudio mainloop",
@@ -526,9 +570,15 @@ impl AppVolumeController {
     let introspector = context.introspect();
     let (index_tx, index_rx) = std::sync::mpsc::channel();
 
-    introspector.get_sink_input_info_list(|_, _, sink_input| {
-      if let Some(sink_input) = sink_input {
-        if sink_input.process_id == pid {
+    introspector.get_sink_input_info_list(move |result| {
+      if let ListResult::Item(sink_input) = result {
+        let pid_val = sink_input
+          .proplist
+          .get_str(APPLICATION_PROCESS_ID)
+          .and_then(|s| s.parse::<u32>().ok())
+          .unwrap_or(0);
+
+        if pid_val == pid {
           let _ = index_tx.send(sink_input.index);
         }
       }
