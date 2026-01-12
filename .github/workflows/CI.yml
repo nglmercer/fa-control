@@ -44,7 +44,7 @@ jobs:
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             setup: |
               sudo apt-get update
-              sudo apt-get install pkg-config -y
+              sudo apt-get install pkg-config libpulse-dev -y
             build: rustup update stable && npm run build -- --target x86_64-unknown-linux-gnu
           # - host: ubuntu-latest
           #   target: x86_64-unknown-linux-musl

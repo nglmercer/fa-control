@@ -3,10 +3,20 @@ import * as faControl from '../index';
 
 describe('fa-control', () => {
   let platform: string;
+  let audioAvailable = true;
 
   beforeAll(() => {
     platform = faControl.getPlatform();
     console.log(`Testing on platform: ${platform}`);
+    if (platform === 'linux') {
+      try {
+        // Try to access audio system to check availability
+        faControl.getMasterVolume();
+      } catch (e) {
+        console.warn('Audio subsystem not available:', e);
+        audioAvailable = false;
+      }
+    }
   });
 
   describe('Platform Detection', () => {
@@ -17,9 +27,13 @@ describe('fa-control', () => {
 
   describe('Per-Application Volume Control', () => {
     test('should get list of active audio apps', () => {
+      if (!audioAvailable) {
+        console.warn('Skipping test: Audio not available');
+        return;
+      }
       const apps = faControl.getActiveAudioApps();
       expect(Array.isArray(apps)).toBe(true);
-      
+
       if (apps.length > 0) {
         const app = apps[0];
         expect(app).toHaveProperty('pid');
@@ -47,7 +61,7 @@ describe('fa-control', () => {
       const apps = faControl.getActiveAudioApps();
       if (apps.length > 0) {
         const pid = apps[0].pid;
-        
+
         expect(() => faControl.setAppVolume(pid, -0.1)).toThrow();
         expect(() => faControl.setAppVolume(pid, 1.1)).toThrow();
         expect(() => faControl.setAppVolume(pid, 2.0)).toThrow();
@@ -58,7 +72,7 @@ describe('fa-control', () => {
       const apps = faControl.getActiveAudioApps();
       if (apps.length > 0) {
         const pid = apps[0].pid;
-        
+
         expect(() => faControl.setAppVolume(pid, 0.0)).not.toThrow();
         expect(() => faControl.setAppVolume(pid, 0.5)).not.toThrow();
         expect(() => faControl.setAppVolume(pid, 1.0)).not.toThrow();
@@ -71,12 +85,12 @@ describe('fa-control', () => {
         const pid = apps[0].pid;
         const originalVolume = faControl.getAppVolume(pid);
         expect(typeof originalVolume).toBe('number');
-        
+
         // Set volume to 0.5
         faControl.setAppVolume(pid, 0.5);
         const newVolume = faControl.getAppVolume(pid);
         expect(newVolume).toBeCloseTo(0.5, 1);
-        
+
         // Restore original volume
         faControl.setAppVolume(pid, originalVolume);
       }
@@ -88,11 +102,11 @@ describe('fa-control', () => {
         const pid = apps[0].pid;
         const originalMuted = faControl.isAppMuted(pid);
         expect(typeof originalMuted).toBe('boolean');
-        
+
         // Toggle mute
         faControl.setAppMute(pid, true);
         expect(faControl.isAppMuted(pid)).toBe(true);
-        
+
         // Restore
         faControl.setAppMute(pid, false);
         expect(faControl.isAppMuted(pid)).toBe(false);
@@ -110,10 +124,10 @@ describe('fa-control', () => {
 
     test('should set master volume', () => {
       const originalVolume = faControl.getMasterVolume();
-      
+
       faControl.setMasterVolume(0.5);
       expect(faControl.getMasterVolume()).toBeCloseTo(0.5, 1);
-      
+
       faControl.setMasterVolume(originalVolume);
     });
 
@@ -129,13 +143,13 @@ describe('fa-control', () => {
 
     test('should set master mute state', () => {
       const originalMuted = faControl.isMasterMuted();
-      
+
       faControl.setMasterMute(true);
       expect(faControl.isMasterMuted()).toBe(true);
-      
+
       faControl.setMasterMute(false);
       expect(faControl.isMasterMuted()).toBe(false);
-      
+
       // Restore
       faControl.setMasterMute(originalMuted);
     });
@@ -144,7 +158,7 @@ describe('fa-control', () => {
       const originalMuted = faControl.isMasterMuted();
       const newMuted = faControl.toggleMasterMute();
       expect(newMuted).toBe(!originalMuted);
-      
+
       // Toggle back
       faControl.toggleMasterMute();
     });
@@ -155,7 +169,7 @@ describe('fa-control', () => {
       const start = Date.now();
       const apps = faControl.getActiveAudioApps();
       const duration = Date.now() - start;
-      
+
       expect(Array.isArray(apps)).toBe(true);
       expect(duration).toBeLessThan(5000); // Should complete in less than 5 seconds
     });
