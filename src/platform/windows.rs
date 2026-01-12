@@ -1,13 +1,16 @@
 use crate::AppInfo;
 use napi::bindgen_prelude::*;
+use std::path::Path;
 use windows::{
   core::Interface,
-  Win32::Foundation::BOOL,
+  Win32::Foundation::{CloseHandle, BOOL},
   Win32::Media::Audio::{
     EDataFlow, ERole, IAudioSessionControl, IAudioSessionControl2, IAudioSessionEnumerator,
     IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
   },
   Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED},
+  Win32::System::ProcessStatus::K32GetModuleFileNameExW,
+  Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
 };
 
 pub struct AudioController;
@@ -365,15 +368,18 @@ impl AppVolumeController {
                   .unwrap_or(BOOL::from(false))
                   .as_bool();
 
-                let display_name = session
-                  .GetDisplayName()
-                  .map(|s| s.to_string())
-                  .unwrap_or_else(|_| Ok("Unknown".to_string()))
-                  .unwrap_or_else(|_| "Unknown".to_string());
+                // Get the process name from PID
+                let process_name = if process_id == 0 {
+                  // System process
+                  "System".to_string()
+                } else {
+                  // Get actual process name
+                  Self::get_process_name(process_id).unwrap_or_else(|_| "Unknown".to_string())
+                };
 
                 apps.push(AppInfo {
                   pid: process_id,
-                  name: display_name,
+                  name: process_name,
                   volume: volume as f64,
                   muted,
                 });
@@ -385,6 +391,39 @@ impl AppVolumeController {
 
       Ok(apps)
     }
+  }
+
+  /// Get the process name from a PID
+  unsafe fn get_process_name(pid: u32) -> Result<String> {
+    let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL::from(false), pid)
+      .map_err(|e| {
+        Error::new(
+          Status::GenericFailure,
+          format!("Failed to open process: {}", e),
+        )
+      })?;
+
+    let mut buffer = [0u16; 520]; // Larger buffer for full path
+    let size = K32GetModuleFileNameExW(process_handle, None, &mut buffer);
+
+    let _ = CloseHandle(process_handle);
+
+    if size == 0 {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "Failed to get module file name",
+      ));
+    }
+
+    // Convert to string and extract just the file name
+    let path_str = String::from_utf16_lossy(&buffer[..size as usize]);
+    let name = Path::new(&path_str)
+      .file_name()
+      .and_then(|n| n.to_str())
+      .unwrap_or("Unknown")
+      .to_string();
+
+    Ok(name)
   }
 
   unsafe fn get_session_manager() -> Result<IAudioSessionManager2> {

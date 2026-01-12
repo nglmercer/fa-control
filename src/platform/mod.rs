@@ -64,7 +64,7 @@ mod unsupported {
       ))
     }
 
-    pub fn set_app_volume(_pid: u32, _volume: f64) -> Result<()> {
+    pub fn set_app_volume(_pid: u32, _volume: f64) -> Result<bool> {
       Err(Error::new(
         Status::GenericFailure,
         "Platform not supported. Only Windows and Linux are supported.",
