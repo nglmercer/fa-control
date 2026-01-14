@@ -770,3 +770,367 @@ impl AppVolumeController {
     ))
   }
 }
+
+/// Controller for input devices (microphones)
+pub struct InputController;
+
+impl InputController {
+  /// Get microphone volume level (0.0 to 1.0)
+  pub fn get_microphone_volume() -> Result<f64> {
+    let volume = Self::get_source_volume()?;
+    Ok(volume as f64)
+  }
+
+  /// Set microphone volume level (0.0 to 1.0)
+  pub fn set_microphone_volume(volume: f64) -> Result<()> {
+    if !(0.0..=1.0).contains(&volume) {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Volume must be between 0.0 and 1.0",
+      ));
+    }
+
+    Self::set_source_volume(volume as f32)?;
+    Ok(())
+  }
+
+  /// Get whether microphone is muted
+  pub fn is_microphone_muted() -> Result<bool> {
+    let muted = Self::get_source_mute()?;
+    Ok(muted)
+  }
+
+  /// Toggle microphone mute state
+  pub fn toggle_microphone_mute() -> Result<bool> {
+    let current_muted = Self::is_microphone_muted()?;
+    Self::set_source_mute(!current_muted)?;
+    Ok(!current_muted)
+  }
+
+  /// Set microphone mute state
+  pub fn set_microphone_mute(muted: bool) -> Result<()> {
+    Self::set_source_mute(muted)?;
+    Ok(())
+  }
+
+  fn get_default_source_name() -> Result<String> {
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-input")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
+
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
+
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(
+            Status::GenericFailure,
+            "Failed to iterate pulseaudio mainloop",
+          ));
+        }
+        IterateResult::Success(_) => {}
+      }
+
+      if let ContextState::Ready = context.get_state() {
+        break;
+      }
+    }
+
+    let introspector = context.introspect();
+    let (source_name_tx, source_name_rx) = std::sync::mpsc::channel();
+
+    let operation = introspector.get_source_info_list(move |result| {
+      if let ListResult::Item(source) = result {
+        if let Some(name) = source.name.as_ref() {
+          let _ = source_name_tx.send(name.to_string());
+        }
+      }
+    });
+
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(name) = source_name_rx.try_recv() {
+        return Ok(name);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
+
+    if let Ok(name) = source_name_rx.try_recv() {
+      return Ok(name);
+    }
+    Err(Error::new(Status::GenericFailure, "No source found"))
+  }
+
+  fn get_source_volume() -> Result<f32> {
+    let source_name = Self::get_default_source_name()?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-source-volume")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
+
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
+
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(
+            Status::GenericFailure,
+            "Failed to iterate pulseaudio mainloop",
+          ));
+        }
+        IterateResult::Success(_) => {}
+      }
+
+      if let ContextState::Ready = context.get_state() {
+        break;
+      }
+    }
+
+    let introspector = context.introspect();
+    let (volume_tx, volume_rx) = std::sync::mpsc::channel();
+
+    let operation = introspector.get_source_info_by_name(&source_name, move |result| {
+      if let ListResult::Item(source) = result {
+        let avg_volume = source.volume.avg().0 as f32 / pulse::volume::Volume::NORMAL.0 as f32;
+        let _ = volume_tx.send(avg_volume);
+      }
+    });
+
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(vol) = volume_rx.try_recv() {
+        return Ok(vol);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
+
+    if let Ok(vol) = volume_rx.try_recv() {
+      return Ok(vol);
+    }
+
+    Err(Error::new(
+      Status::GenericFailure,
+      "Timeout getting source volume (No result)",
+    ))
+  }
+
+  fn set_source_volume(volume: f32) -> Result<()> {
+    let source_name = Self::get_default_source_name()?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-set-source-volume")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
+
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
+
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(
+            Status::GenericFailure,
+            "Failed to iterate pulseaudio mainloop",
+          ));
+        }
+        IterateResult::Success(_) => {}
+      }
+
+      if let ContextState::Ready = context.get_state() {
+        break;
+      }
+    }
+
+    let operation = {
+      let mut cv = ChannelVolumes::default();
+      let vol_val = (volume * pulse::volume::Volume::NORMAL.0 as f32) as u32;
+      cv.set(2, pulse::volume::Volume(vol_val));
+
+      context
+        .introspect()
+        .set_source_volume_by_name(&source_name, &cv, None)
+    };
+
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        OperationState::Running => {}
+      }
+    }
+
+    Ok(())
+  }
+
+  fn get_source_mute() -> Result<bool> {
+    let source_name = Self::get_default_source_name()?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-get-source-mute")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
+
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
+
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(
+            Status::GenericFailure,
+            "Failed to iterate pulseaudio mainloop",
+          ));
+        }
+        IterateResult::Success(_) => {}
+      }
+
+      if let ContextState::Ready = context.get_state() {
+        break;
+      }
+    }
+
+    let introspector = context.introspect();
+    let (mute_tx, mute_rx) = std::sync::mpsc::channel();
+
+    let operation = introspector.get_source_info_by_name(&source_name, move |result| {
+      if let ListResult::Item(source) = result {
+        let _ = mute_tx.send(source.mute);
+      }
+    });
+
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      if let Ok(muted) = mute_rx.try_recv() {
+        return Ok(muted);
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        _ => {}
+      }
+    }
+
+    if let Ok(muted) = mute_rx.try_recv() {
+      return Ok(muted);
+    }
+
+    Err(Error::new(
+      Status::GenericFailure,
+      "Timeout getting source mute state",
+    ))
+  }
+
+  fn set_source_mute(muted: bool) -> Result<()> {
+    let source_name = Self::get_default_source_name()?;
+    let mut mainloop = Mainloop::new()
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create mainloop"))?;
+    let mut context = Context::new(&mainloop, "fa-control-set-source-mute")
+      .ok_or_else(|| Error::new(Status::GenericFailure, "Failed to create context"))?;
+
+    context
+      .connect(None, ContextFlagSet::NOFLAGS, None)
+      .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to connect: {}", e)))?;
+
+    loop {
+      match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(
+            Status::GenericFailure,
+            "Failed to iterate pulseaudio mainloop",
+          ));
+        }
+        IterateResult::Success(_) => {}
+      }
+
+      if let ContextState::Ready = context.get_state() {
+        break;
+      }
+    }
+
+    let operation = context
+      .introspect()
+      .set_source_mute_by_name(&source_name, muted, None);
+
+    loop {
+      match mainloop.iterate(true) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+          return Err(Error::new(Status::GenericFailure, "Mainloop error"))
+        }
+        _ => {}
+      }
+      match operation.get_state() {
+        OperationState::Done | OperationState::Cancelled => break,
+        OperationState::Running => {}
+      }
+    }
+
+    Ok(())
+  }
+}
+
+/// Controller for audio level metering
+pub struct AudioLevelMeter;
+
+impl AudioLevelMeter {
+  /// Get master output audio level (0.0 to 1.0)
+  pub fn get_master_audio_level() -> Result<f64> {
+    // PulseAudio doesn't provide direct peak values for sinks
+    // This is a limitation of the current implementation
+    // For accurate level metering, you would need to monitor the audio stream
+    Err(Error::new(
+      Status::GenericFailure,
+      "Audio level metering for sinks is not directly supported in PulseAudio. Consider using a monitoring sink or PipeWire for this functionality.",
+    ))
+  }
+
+  /// Get microphone input audio level (0.0 to 1.0)
+  pub fn get_microphone_audio_level() -> Result<f64> {
+    // PulseAudio doesn't provide direct peak values for sources
+    // This is a limitation of the current implementation
+    // For accurate level metering, you would need to monitor the audio stream
+    Err(Error::new(
+      Status::GenericFailure,
+      "Audio level metering for sources is not directly supported in PulseAudio. Consider using a monitoring source or PipeWire for this functionality.",
+    ))
+  }
+
+  /// Get audio level for a specific application by PID (0.0 to 1.0)
+  pub fn get_app_audio_level(pid: u32) -> Result<f64> {
+    // PulseAudio doesn't provide direct peak values for sink inputs
+    // This is a limitation of the current implementation
+    Err(Error::new(
+      Status::GenericFailure,
+      "Audio level metering for applications is not directly supported in PulseAudio. Consider using PipeWire for this functionality.",
+    ))
+  }
+}

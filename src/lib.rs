@@ -6,7 +6,7 @@ use napi_derive::napi;
 
 mod platform;
 
-use platform::{AppVolumeController, AudioController};
+use platform::{AppVolumeController, AudioController, InputController};
 
 /// Get master volume level (0.0 to 1.0)
 #[napi]
@@ -76,6 +76,41 @@ pub struct AppInfo {
   pub volume: f64,
   pub muted: bool,
 }
+
+// ============== Microphone/Input Control Functions ==============
+
+/// Get microphone volume level (0.0 to 1.0)
+#[napi]
+pub fn get_microphone_volume() -> Result<f64> {
+  InputController::get_microphone_volume()
+}
+
+/// Set microphone volume level (0.0 to 1.0)
+#[napi]
+pub fn set_microphone_volume(volume: f64) -> Result<()> {
+  InputController::set_microphone_volume(volume)
+}
+
+/// Get whether microphone is muted
+#[napi]
+pub fn is_microphone_muted() -> Result<bool> {
+  InputController::is_microphone_muted()
+}
+
+/// Toggle microphone mute state
+#[napi]
+pub fn toggle_microphone_mute() -> Result<bool> {
+  InputController::toggle_microphone_mute()
+}
+
+/// Set microphone mute state
+#[napi]
+pub fn set_microphone_mute(muted: bool) -> Result<()> {
+  InputController::set_microphone_mute(muted)
+}
+
+
+// ============== Platform Info ==============
 
 /// Get current platform
 #[napi]

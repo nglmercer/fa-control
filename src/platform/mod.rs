@@ -5,10 +5,10 @@ pub mod windows;
 pub mod linux;
 
 #[cfg(windows)]
-pub use windows::{AppVolumeController, AudioController};
+pub use windows::{AppVolumeController, AudioController, InputController};
 
 #[cfg(target_os = "linux")]
-pub use linux::{AppVolumeController, AudioController};
+pub use linux::{AppVolumeController, AudioController, InputController};
 
 #[cfg(not(any(windows, target_os = "linux")))]
 mod unsupported {
@@ -92,7 +92,46 @@ mod unsupported {
       ))
     }
   }
+
+  pub struct InputController;
+
+  impl InputController {
+    pub fn get_microphone_volume() -> Result<f64> {
+      Err(Error::new(
+        Status::GenericFailure,
+        "Platform not supported. Only Windows and Linux are supported.",
+      ))
+    }
+
+    pub fn set_microphone_volume(_volume: f64) -> Result<()> {
+      Err(Error::new(
+        Status::GenericFailure,
+        "Platform not supported. Only Windows and Linux are supported.",
+      ))
+    }
+
+    pub fn is_microphone_muted() -> Result<bool> {
+      Err(Error::new(
+        Status::GenericFailure,
+        "Platform not supported. Only Windows and Linux are supported.",
+      ))
+    }
+
+    pub fn toggle_microphone_mute() -> Result<bool> {
+      Err(Error::new(
+        Status::GenericFailure,
+        "Platform not supported. Only Windows and Linux are supported.",
+      ))
+    }
+
+    pub fn set_microphone_mute(_muted: bool) -> Result<()> {
+      Err(Error::new(
+        Status::GenericFailure,
+        "Platform not supported. Only Windows and Linux are supported.",
+      ))
+    }
+  }
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-pub use unsupported::{AppVolumeController, AudioController};
+pub use unsupported::{AppVolumeController, AudioController, InputController};
