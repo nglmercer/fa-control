@@ -109,7 +109,6 @@ pub fn set_microphone_mute(muted: bool) -> Result<()> {
   InputController::set_microphone_mute(muted)
 }
 
-
 // ============== Platform Info ==============
 
 /// Get current platform

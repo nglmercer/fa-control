@@ -634,4 +634,3 @@ impl InputController {
     Ok(device)
   }
 }
-
