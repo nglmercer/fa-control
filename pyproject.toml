@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0", "rust>=1.56"]
+build-backend = "maturin"
+
+[project]
+name = "fa-control"
+version = "0.1.3"
+description = "Robust cross-platform audio control library for Python written in Rust"
+readme = "README.md"
+authors = [
+  {name = "LongYinan", email = "lynweklm@gmail.com"},
+]
+license = {text = "MIT"}
+keywords = ["audio", "volume", "microphone", "sound", "control", "cross-platform"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Multimedia :: Sound/Audio",
+]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/nglmercer/fa-control"
+Repository = "https://github.com/nglmercer/fa-control.git"
+Issues = "https://github.com/nglmercer/fa-control/issues"
+
+[tool.maturin]
+module-name = "fa_control._internal"
+features = ["pyo3"]
+python-source = "python"
+exclude = ["^build/", "\\.git/", "target/", "__pycache__/", "(\\.pyc|\\.pyo)$"]

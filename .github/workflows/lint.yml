@@ -17,17 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          bun-version: latest
+          python-version: "3.11"
 
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -35,21 +30,23 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev pkg-config libpulse-dev pulseaudio
+          sudo apt-get install -y pkg-config libpulse-dev
 
-      - name: Install dependencies
-        run: bun install
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin
 
       - name: Clippy
-        run: bun run clippy
+        run: cargo clippy -- -D warnings
 
       - name: Cargo check
-        run: bun run check
+        run: cargo check
 
-      - name: Build
-        run: bun run build:debug
+      - name: Build Python package
+        run: maturin build --release
 
-      - name: Run tests
+      - name: Run Python tests
         run: |
-          pulseaudio --start --exit-idle-time=-1
-          bun run test
+          pip install python/tests/
+          cd python && python -m pytest tests/
