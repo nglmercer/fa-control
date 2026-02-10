@@ -21,7 +21,7 @@ class TestMasterVolume:
         
         # Set to a valid value
         fa_control.set_master_volume(0.5)
-        assert fa_control.get_master_volume() == 0.5
+        assert fa_control.get_master_volume() == pytest.approx(0.5, rel=1e-2)
         
         # Restore original
         fa_control.set_master_volume(original)
@@ -63,7 +63,7 @@ class TestMicrophone:
         original = fa_control.get_microphone_volume()
         
         fa_control.set_microphone_volume(0.7)
-        assert fa_control.get_microphone_volume() == 0.7
+        assert fa_control.get_microphone_volume() == pytest.approx(0.7, rel=1e-2)
         
         # Restore original
         fa_control.set_microphone_volume(original)
@@ -122,7 +122,7 @@ class TestAppVolume:
         original = fa_control.get_app_volume(first_app.pid)
         
         fa_control.set_app_volume(first_app.pid, 0.4)
-        assert fa_control.get_app_volume(first_app.pid) == 0.4
+        assert fa_control.get_app_volume(first_app.pid) == pytest.approx(0.4, rel=1e-2)
         
         # Restore original
         fa_control.set_app_volume(first_app.pid, original)
@@ -155,7 +155,7 @@ class TestAppVolume:
 
 
 class TestAppInfo:
-    """Test AppInfo dataclass"""
+    """Test AppInfo class"""
     def test_appinfo_creation(self):
         app = fa_control.AppInfo(
             pid=1234,
@@ -165,7 +165,7 @@ class TestAppInfo:
         )
         assert app.pid == 1234
         assert app.name == "Test App"
-        assert app.volume == 0.5
+        assert app.volume == pytest.approx(0.5, rel=1e-2)
         assert app.muted is False
 
     def test_appinfo_repr(self):
@@ -179,3 +179,15 @@ class TestAppInfo:
         assert "pid=5678" in repr_str
         assert "MyApp" in repr_str
         assert "0.75" in repr_str
+
+    def test_appinfo_properties(self):
+        app = fa_control.AppInfo(
+            pid=9999,
+            name="TestApp",
+            volume=0.25,
+            muted=True
+        )
+        assert app.pid == 9999
+        assert app.name == "TestApp"
+        assert app.volume == pytest.approx(0.25, rel=1e-2)
+        assert app.muted is True

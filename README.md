@@ -1,6 +1,6 @@
 # fa-control
 
-A robust cross-platform audio control library written in Rust, providing bindings for both **Node.js** and **Python**. It offers master volume control and per-application volume control for Windows and Linux.
+A robust cross-platform audio control library written in Rust with **Python** bindings. It offers master volume control and per-application volume control for Windows and Linux.
 
 ## Features
 
@@ -10,7 +10,6 @@ A robust cross-platform audio control library written in Rust, providing binding
 - **Per-Application Mute Control**: Get and set mute state for specific applications by PID
 - **List Active Audio Apps**: Get a list of all active audio applications with their PIDs, names, volumes, and mute states
 - **Microphone/Input Control**: Get and set microphone volume and mute state
-- **Python & Node.js Support**: Use from either language with native performance
 
 ## Platform Support
 
@@ -22,7 +21,7 @@ A robust cross-platform audio control library written in Rust, providing binding
 ### Platform-Specific Features
 
 | Feature | Windows | Linux |
-|----------|----------|--------|
+|----------|---------|-------|
 | Master Volume Control | ❌ Not available | ✅ Supported |
 | Master Mute Control | ❌ Not available | ✅ Supported |
 | Microphone Control | ✅ Supported | ✅ Supported |
@@ -30,77 +29,29 @@ A robust cross-platform audio control library written in Rust, providing binding
 | Per-Application Mute | ✅ Supported | ✅ Supported |
 | List Active Audio Apps | ✅ Supported | ✅ Supported |
 
-## Python & Node.js Support
-
-This library provides native bindings for both Python and Node.js:
-
-- **Python**: Import as `fa_control` module (requires Python 3.8+)
-- **Node.js**: Import as `fa-control` package
-
 ## Installation
 
-### Node.js
+### Using pip
 
 ```bash
-npm install fa-control
+pip install fa-control
 ```
 
-### Python
+### Building from Source
 
 ```bash
-# Using pip (once published)
-pip install fa-control
+# Install maturin
+pip install maturin
 
-# Or build from source
-cd python
+# Build and install
+maturin develop
+
+# Or build a wheel
 maturin build --release
 pip install target/wheels/fa_control-*.whl
 ```
 
 ## Usage
-
-### Node.js / JavaScript
-
-```javascript
-const faControl = require('fa-control');
-
-// Master Volume Control (Linux only)
-const currentVolume = faControl.getMasterVolume(); // Returns 0.0 to 1.0
-faControl.setMasterVolume(0.5); // Set to 50%
-
-const isMuted = faControl.isMasterMuted(); // Check if muted
-faControl.setMasterMute(true); // Mute audio
-faControl.toggleMasterMute(); // Toggle mute state
-
-// Microphone Control
-const micVolume = faControl.getMicrophoneVolume();
-faControl.setMicrophoneVolume(0.7);
-const isMicMuted = faControl.isMicrophoneMuted();
-faControl.setMicrophoneMute(true);
-faControl.toggleMicrophoneMute();
-
-// Per-Application Volume Control (requires PID)
-const appPid = 1234; // Process ID of the application
-const appVolume = faControl.getAppVolume(appPid);
-faControl.setAppVolume(appPid, 0.7); // Set to 70%
-
-const isAppMuted = faControl.isAppMuted(appPid);
-faControl.setAppMute(appPid, true); // Mute the application
-
-// List all active audio applications
-const activeApps = faControl.getActiveAudioApps();
-console.log(activeApps);
-// Output: [
-//   { pid: 1234, name: "Spotify", volume: 0.5, muted: false },
-//   { pid: 5678, name: "Chrome", volume: 0.8, muted: false },
-//   ...
-// ]
-
-// Get current platform
-const platform = faControl.getPlatform(); // Returns "windows" or "linux"
-```
-
-### Python
 
 ```python
 import fa_control
@@ -152,86 +103,70 @@ if active_apps:
 
 ## API Reference
 
-All functions return Promises in Node.js (except `getPlatform()`) and may throw errors on failure.
-
 ### Master Volume Functions (Linux only)
 
-#### `getMasterVolume(): Promise<number>` / `get_master_volume() -> float`
+#### `get_master_volume() -> float`
 Returns the master volume level as a float between 0.0 and 1.0.
 
-#### `setMasterVolume(volume: number): Promise<void>` / `set_master_volume(volume: float) -> None`
+#### `set_master_volume(volume: float) -> None`
 Sets the master volume level. Volume must be between 0.0 and 1.0.
 
-#### `isMasterMuted(): Promise<boolean>` / `is_master_muted() -> bool`
+#### `is_master_muted() -> bool`
 Returns whether the master audio is muted.
 
-#### `setMasterMute(muted: boolean): Promise<void>` / `set_master_mute(muted: bool) -> None`
+#### `set_master_mute(muted: bool) -> None`
 Sets the master mute state.
 
-#### `toggleMasterMute(): Promise<boolean>` / `toggle_master_mute() -> bool`
+#### `toggle_master_mute() -> bool`
 Toggles the master mute state and returns the new state.
 
 ### Microphone/Input Control Functions
 
-#### `getMicrophoneVolume(): Promise<number>` / `get_microphone_volume() -> float`
+#### `get_microphone_volume() -> float`
 Returns the microphone volume level as a float between 0.0 and 1.0.
 
-#### `setMicrophoneVolume(volume: number): Promise<void>` / `set_microphone_volume(volume: float) -> None`
+#### `set_microphone_volume(volume: float) -> None`
 Sets the microphone volume level. Volume must be between 0.0 and 1.0.
 
-#### `isMicrophoneMuted(): Promise<boolean>` / `is_microphone_muted() -> bool`
+#### `is_microphone_muted() -> bool`
 Returns whether the microphone is muted.
 
-#### `setMicrophoneMute(muted: boolean): Promise<void>` / `set_microphone_mute(muted: bool) -> None`
+#### `set_microphone_mute(muted: bool) -> None`
 Sets the microphone mute state.
 
-#### `toggleMicrophoneMute(): Promise<boolean>` / `toggle_microphone_mute() -> bool`
+#### `toggle_microphone_mute() -> bool`
 Toggles the microphone mute state and returns the new state.
 
 ### Per-Application Volume Functions
 
-#### `getAppVolume(pid: number): Promise<number>` / `get_app_volume(pid: int) -> float`
+#### `get_app_volume(pid: int) -> float`
 Returns the volume level for the application with the given PID.
 
-#### `setAppVolume(pid: number, volume: number): Promise<boolean>` / `set_app_volume(pid: int, volume: float) -> None`
+#### `set_app_volume(pid: int, volume: float) -> None`
 Sets the volume level for the application with the given PID. Volume must be between 0.0 and 1.0.
 
-#### `isAppMuted(pid: number): Promise<boolean>` / `is_app_muted(pid: int) -> bool`
+#### `is_app_muted(pid: int) -> bool`
 Returns whether the application with the given PID is muted.
 
-#### `setAppMute(pid: number, muted: boolean): Promise<void>` / `set_app_mute(pid: int, muted: bool) -> None`
+#### `set_app_mute(pid: int, muted: bool) -> None`
 Sets the mute state for the application with the given PID.
 
-#### `getActiveAudioApps(): Promise<AppInfo[]>` / `get_active_audio_apps() -> List[AppInfo]`
-Returns a list/array of active audio applications with their details.
+#### `get_active_audio_apps() -> List[AppInfo]`
+Returns a list of active audio applications with their details.
 
 ### Utility Functions
 
-#### `getPlatform(): string` / `get_platform() -> str`
+#### `get_platform() -> str`
 Returns the current platform: `"windows"`, `"linux"`, or `"unsupported"`.
 
 ### Types
 
-#### JavaScript / TypeScript
-
-```typescript
-interface AppInfo {
-  pid: number;      // Process ID
-  name: string;     // Application name
-  volume: number;   // Volume level (0.0 to 1.0)
-  muted: boolean;   // Mute state
-}
-```
-
-#### Python
-
 ```python
-@dataclass
 class AppInfo:
-    pid: int
-    name: str
-    volume: float
-    muted: bool
+    pid: int        # Process ID
+    name: str       # Application name
+    volume: float   # Volume level (0.0 to 1.0)
+    muted: bool     # Mute state
 ```
 
 ## Platform-Specific Notes
@@ -252,16 +187,6 @@ class AppInfo:
 
 ## Getting PIDs for Applications
 
-### Node.js
-```javascript
-// You can get PIDs from the active apps list
-const apps = await faControl.getActiveAudioApps();
-apps.forEach(app => {
-  console.log(`${app.pid}: ${app.name}`);
-});
-```
-
-### Python
 ```python
 # Get PIDs from the active apps list
 apps = fa_control.get_active_audio_apps()
@@ -274,32 +199,12 @@ for app in apps:
 ### Prerequisites
 
 - **Rust**: Install from https://rustup.rs/
-- **Node.js**: For building N-API bindings (optional)
-- **Python 3.8+**: For building Python bindings (optional)
-- **maturin**: `pip install maturin` (for Python builds)
+- **Python 3.8+**
+- **maturin**: `pip install maturin`
 
-### Building Node.js Bindings
-
-```bash
-# Install dependencies
-npm install
-
-# Build for current platform
-npm run build
-
-# Build for all platforms
-npm run build:all
-
-# Run tests
-npm test
-```
-
-### Building Python Bindings
+### Building
 
 ```bash
-# Navigate to python directory
-cd python
-
 # Build and install in development mode
 maturin develop
 
@@ -308,9 +213,6 @@ maturin build --release
 
 # Install the built wheel
 pip install target/wheels/fa_control-*.whl
-
-# Run tests
-pytest python/tests/
 ```
 
 ## Development
@@ -326,15 +228,13 @@ cargo fmt
 cargo check
 
 # Run Clippy
-cargo clippy -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 
-# Run tests (both Node.js and Python)
-npm test
+# Run tests
+cargo test --all-targets --all-features
+
+# Run Python tests
 cd python && pytest
-
-# Build both bindings
-cargo build --release
-cd python && maturin build --release
 ```
 
 ## License
@@ -352,11 +252,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - [ ] Volume change events/callbacks
 - [ ] Per-channel volume control
 - [ ] WASAPI exclusive mode support
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-MIT

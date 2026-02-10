@@ -188,6 +188,11 @@ impl From<RustAppInfo> for AppInfo {
 
 #[pymethods]
 impl AppInfo {
+  #[new]
+  pub fn new(pid: u32, name: String, volume: f64, muted: bool) -> Self {
+    AppInfo { pid, name, volume, muted }
+  }
+
   #[getter]
   pub fn pid(&self) -> u32 {
     self.pid
