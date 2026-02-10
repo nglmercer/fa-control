@@ -13,19 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      
-      - name: Install dependencies
+
+      - name: Install system dependencies
         run: |
-          pip install maturin
-      
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libpulse-dev libasound2-dev
+
+      - name: Install dependencies
+        run: pip install maturin
+
       - name: Build wheels
         run: maturin build --release --manylinux manylinux2014_x86_64
-      
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

@@ -180,6 +180,11 @@ class AppInfo:
 
 ### Linux
 - Uses PulseAudio (compatible with PipeWire)
+- **Requires**: `libpulse-dev` and `libasound2-dev` packages
+  ```bash
+  # Debian/Ubuntu
+  sudo apt-get install libpulse-dev libasound2-dev
+  ```
 - Requires PulseAudio server running
 - Per-application control works with sink-inputs
 - Application names may vary depending on how the application identifies itself
