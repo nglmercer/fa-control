@@ -34,7 +34,7 @@ jobs:
       - name: Build wheels
         run: |
           source venv/bin/activate
-          maturin build --release --manylinux manylinux2014_x86_64
+          maturin build --release --manylinux 2014
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
