@@ -38,6 +38,7 @@ jobs:
         uses: messense/maturin-action@v1
         with:
           manylinux: auto
+          install: yum install -y pulseaudio-libs-devel  # For manylinux2014
           args: --release --out dist
 
       - name: Publish to PyPI
