@@ -10,6 +10,7 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint
@@ -30,12 +31,21 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libpulse-dev libasound2-dev
+          sudo apt-get install -y pkg-config libpulse-dev libasound2-dev dbus-x11 xvfb
 
       - name: Rust checks
         run: |
           cargo check
           cargo clippy -- -D warnings
+
+      - name: Start PulseAudio
+        run: |
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1024x768x24 &
+          sleep 2
+          pulseaudio --start --exit-idle-time=-1 --daemonize=true
+          sleep 1
+          pactl info || true
 
       - name: Create virtualenv and install dependencies
         run: |
@@ -45,6 +55,8 @@ jobs:
           pip install maturin pytest
 
       - name: Run Python tests
+        env:
+          DISPLAY: :99
         run: |
           source venv/bin/activate
           maturin develop
