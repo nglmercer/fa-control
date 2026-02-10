@@ -31,8 +31,8 @@ windows = { version = "0.58", features = [
 
 # Linux audio control dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
-libpulse-binding = { version = "2.28", features = ["static"] }
+libpulse-binding = "2.28"
 
 [profile.release]
 lto = true
-codegen-units = 1
+opt-level = 3
