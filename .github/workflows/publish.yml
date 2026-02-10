@@ -29,22 +29,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libpulse-dev libasound2-dev
-
-      - name: Create virtualenv and install dependencies
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install maturin
-
       - name: Build wheels
-        run: |
-          source venv/bin/activate
-          maturin build --release --manylinux 2014
+        uses: messense/maturin-action@v1
+        with:
+          manylinux: manylinux2014
+          args: --release --out dist
 
       - name: Publish to PyPI
         if: inputs.repository == 'pypi' || github.event_name == 'release'
@@ -60,3 +49,9 @@ jobs:
           user: __token__
           password: ${{ secrets.TESTPYPI_API_TOKEN }}
           repository-url: https://test.pypi.org/legacy/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: dist
