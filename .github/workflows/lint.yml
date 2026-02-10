@@ -3,7 +3,7 @@ name: Lint
 on:
   push:
     branches:
-      - main
+      - python-bindings
     tags-ignore:
       - '**'
   pull_request:
