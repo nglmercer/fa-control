@@ -3,6 +3,16 @@ name: Publish to PyPI
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Repository to publish to (pypi or testpypi)'
+        required: false
+        default: 'pypi'
+        type: choice
+        options:
+          - pypi
+          - testpypi
 
 permissions:
   contents: read
@@ -37,7 +47,16 @@ jobs:
           maturin build --release --manylinux 2014
 
       - name: Publish to PyPI
+        if: inputs.repository == 'pypi' || github.event_name == 'release'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Publish to TestPyPI
+        if: inputs.repository == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.TESTPYPI_API_TOKEN }}
+          repository-url: https://test.pypi.org/legacy/
