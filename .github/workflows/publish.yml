@@ -37,7 +37,8 @@ jobs:
       - name: Build wheels
         uses: messense/maturin-action@v1
         with:
-          args: --release --out dist --skip-auditwheel
+          manylinux: musllinux_1_2
+          args: --release --out dist
 
       - name: Publish to PyPI
         if: inputs.repository == 'pypi' || github.event_name == 'release'
