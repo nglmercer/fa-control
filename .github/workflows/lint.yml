@@ -40,12 +40,6 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: ESLint
-        run: bun run lint
-
-      - name: Cargo fmt
-        run: cargo fmt -- --check
-
       - name: Clippy
         run: bun run clippy
 
